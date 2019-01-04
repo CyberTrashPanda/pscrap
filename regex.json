@@ -1,0 +1,12 @@
+[
+    {
+        "name": "GMail",
+        "regex":"[A-Z0-9a-z._%+-]+@g(oogle)?mail\\.[A-Za-z0-9.-]{2,12}",
+        "secondary_regex": [
+            "\\.com"
+        ],
+        "blacklist_regex": [
+            "EXTINF"
+        ]
+    }
+]
