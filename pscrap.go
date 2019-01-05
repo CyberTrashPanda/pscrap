@@ -10,14 +10,16 @@ import (
 	"io/ioutil"
 	"strings"
 	"os"
+	"gopkg.in/mgo.v2"
 )
 
 const pastebinURL = "https://scrape.pastebin.com/api_scraping.php?limit=100"
 const timeout = 60 * time.Second
 const outfileFormat = "paste_%s_%s.txt"
 const regexFile = "regex.json"
+const dbFile = "db.json"
 
-/* The pastebin json */
+/* The pastebin json structure*/
 type Paste struct {
 	ScrapeURL 	string		`json:"scrape_url"`
 	FullURL 	string		`json:"full_url"`
@@ -29,12 +31,56 @@ type Paste struct {
 	User 		string		`json:"user"`
 }
 
+
+type DBPaste struct {
+	Key			string		`bson:"key"`
+	Data		string		`bson:"data"`
+	
+}
+
 type RE struct {
 	Name			string		`json:"name"`
 	Regex			string		`json:"regex"`
 	SecondaryRegex	[]string 	`json:"secondary_regex"`
 	BlacklistRegex	[]string	`json:"blacklist_regex"`
 }
+
+type DB struct {
+	Host			string 		`json:"host"`
+	DatabaseName	string		`json:"dbname"`
+}
+
+
+
+func checkDBConnection(credentials DB) *mgo.Session {
+	var err error
+	var session *mgo.Session
+	session, err = mgo.Dial(credentials.Host)
+	if(err != nil){
+		fmt.Printf("[-] Could not connect to mongodb.\n")
+		os.Exit(0)
+	}
+	return session
+}
+
+func readDBconfig(filename string) DB {
+	var err error
+	var data []byte
+	var db DB
+
+	data, err = ioutil.ReadFile(filename)
+	if err != nil{
+		fmt.Printf("[-] Can't read database file.\n")
+		os.Exit(0)
+	}
+	err = json.Unmarshal(data, &db)
+	if err != nil {
+		fmt.Println("Error:", err)
+		os.Exit(0)
+	}
+	return db
+}
+	
 
 func stringInSlice(a string, list []string) bool {
     for _, b := range list {
@@ -48,10 +94,9 @@ func stringInSlice(a string, list []string) bool {
 func getPastes() []Paste{
 	var httpRes *http.Response
 	var err error
-	var pastes []Paste //= make([]Paste, 0)
+	var pastes []Paste 
 	var data []byte
-	//var pasteCount int
-	//var counter int
+
 
 	httpRes, err = http.Get(pastebinURL)
 	
@@ -66,10 +111,6 @@ func getPastes() []Paste{
 		return pastes
 	}
 	json.Unmarshal(data, &pastes)
-	/*pasteCount = len(pastes)
-	for counter = 0; counter < pasteCount; counter++ {
-		fmt.Printf("Title: %s\n Name: %s\n", pastes[counter].Title, pastes[counter].Key)
-	}*/
 	return pastes
 }
 
@@ -159,21 +200,25 @@ func hasRegex(regexes []RE, data []byte) (bool, string){
 	return false, ""
 }
 
-func savePaste(paste Paste, reName string,  data []byte){
-	var filename string
+func savePaste(paste Paste, reName string,  data []byte, session *mgo.Session, dbname string){
+	var database *mgo.Database
+	var collection *mgo.Collection
 	var err error
-
-	filename = fmt.Sprintf(outfileFormat, strings.ToLower(reName), paste.Key)
-	err = ioutil.WriteFile(filename, data, 0644)
-	if err != nil {
-		fmt.Printf("[-] Can't write to file '%s'.\n", filename)
-		os.Exit(0)
+	var dbPaste DBPaste
+	
+	database = session.DB(dbname)
+	collection = database.C(strings.ToLower(reName))
+	dbPaste = DBPaste{ Key: paste.Key, Data: string(data[:]) }
+	err = collection.Insert(dbPaste)
+	if(err != nil){
+		fmt.Printf("[-] Could not save paste '%s'.\n", paste.Key)
 	}else{
-		fmt.Printf("[+] Dumped '%s'\n", filename)
-	}
+		fmt.Printf("[+] Saved paste '%s' in collection '%s'.\n", paste.Key, strings.ToLower(reName))
+	}	
+	
 }
 
-func checkPaste(paste Paste, regexes []RE){
+func checkPaste(paste Paste, regexes []RE, session *mgo.Session, dbname string){
 	var httpRes *http.Response
 	var err error
 	var data []byte
@@ -193,7 +238,7 @@ func checkPaste(paste Paste, regexes []RE){
 	}
 	reBool, reStr = hasRegex(regexes, data)
 	if reBool {
-		savePaste(paste, reStr, data)
+		savePaste(paste, reStr, data, session, dbname)
 	}
 }
 
@@ -201,9 +246,16 @@ func main(){
 	
 	var blacklist []string
 	var regexes []RE
+	var db DB
 	var pastes []Paste
+	var session *mgo.Session
+
 	var pastesCount int
 	var counter int
+
+	db = readDBconfig(dbFile);
+	session = checkDBConnection(db);
+	defer session.Close()
 
 	regexes = readRegex(regexFile)
 	for true{
@@ -212,7 +264,7 @@ func main(){
 		blacklist = getBlacklist(pastes, blacklist)
 		pastesCount = len(pastes)
 		for counter = 0; counter < pastesCount; counter++{
-			checkPaste(pastes[counter], regexes)
+			checkPaste(pastes[counter], regexes, session, db.DatabaseName)
 		}
 		fmt.Printf("[ ] Sleeping for 1m.\n")
 		time.Sleep(timeout)

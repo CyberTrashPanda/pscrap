@@ -6,7 +6,6 @@ pscrap is just a small pastebin scraping tool utilizing the pastebin scrapping A
 
 It uses regular expressions to validate or exclude pastes.
 
-
 The structure of the config file is quite simple.
 
 | Property Name | Description |
@@ -19,9 +18,9 @@ The structure of the config file is quite simple.
 
 
 ### TODO
-* Store pastes in a database.
+* ~~Store pastes in a database~~.
 * Create a small Telegram bot to provide information about stored pastes.
 
 
 ### Screenshot
-![screenshot_1](https://i.imgur.com/VjZSxH8.png)
+![screenshot_1](https://i.imgur.com/XtNFnjx.png)
